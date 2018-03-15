@@ -80,7 +80,7 @@
 int acl = 0;
 int verbose = 0;
 int udprelay = 0;
-static int fast_open = 0;
+int fast_open = 0;
 #ifdef HAVE_SETRLIMIT
 #ifndef LIB_ONLY
 static int nofile = 0;
@@ -262,11 +262,48 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents)
                     ev_timer_start(EV_A_ & remote->send_ctx->watcher);
                 } else {
 #ifdef TCP_FASTOPEN
-                    int s = sendto(remote->fd, remote->buf, r, MSG_FASTOPEN,
+                    int s = 0;
+#ifdef _WIN32
+                    int opt = 1;
+                    if (0 != setsockopt(remote->fd, IPPROTO_TCP, TCP_FASTOPEN, 
+                                    &opt, sizeof(opt))) {
+                        ERROR("setsockopt TCP_FASTOPEN");
+                        goto not_support;
+                    }
+                    DWORD sent = 0;
+					{
+						struct sockaddr_in addr;
+						ZeroMemory(&addr, sizeof(addr));
+						addr.sin_family = AF_INET;
+						addr.sin_addr.s_addr = INADDR_ANY;
+						addr.sin_port = 0;
+						if (0 != bind(remote->fd, (SOCKADDR*) &addr, sizeof(addr))) {
+							ERROR("bind");
+                            goto fail;
+						}
+					}
+                    if (TRUE != ConnectEx(remote->fd, 
+                                remote->addr_info->ai_addr,
+                                remote->addr_info->ai_addrlen,
+                                remote->buf, remote->buf_len, &sent, &remote->olap)) {
+                        if (WSAGetLastError() == ERROR_IO_PENDING) {
+                            goto in_progress;
+                        } else {
+                            ERROR("ConnectEx");
+                            goto fail;
+                        }
+                    } else {
+                        remote->connect_ex_done = 1;
+						s = sent;
+					}
+#else
+                    s = sendto(remote->fd, remote->buf, r, MSG_FASTOPEN,
                                    remote->addr_info->ai_addr,
                                    remote->addr_info->ai_addrlen);
+#endif
                     if (s == -1) {
                         if (errno == EINPROGRESS) {
+in_progress:
                             // in progress, wait until connected
                             remote->buf_idx = 0;
                             remote->buf_len = r;
@@ -276,11 +313,13 @@ static void server_recv_cb(EV_P_ ev_io *w, int revents)
                         } else {
                             ERROR("sendto");
                             if (errno == ENOTCONN) {
+not_support:
                                 LOGE(
                                     "fast open is not supported on this platform");
                                 // just turn it off
                                 fast_open = 0;
                             }
+fail:
                             close_and_free_remote(EV_A_ remote);
                             close_and_free_server(EV_A_ server);
                             return;
@@ -617,10 +656,42 @@ static void remote_send_cb(EV_P_ ev_io *w, int revents)
     struct server *server = remote->server;
 
     if (!remote_send_ctx->connected) {
+#ifdef _WIN32
+        if (fast_open) {
+            // Check if ConnectEx is done
+            if (!remote->connect_ex_done) {
+                DWORD numBytes;
+                DWORD flags;
+                // Non-blocking way to fetch ConnectEx result
+                if (WSAGetOverlappedResult(remote->fd, &remote->olap,
+                                           &numBytes, FALSE, &flags)) {
+                    remote->buf_len -= numBytes;
+                    remote->buf_idx  += numBytes;
+                    remote->connect_ex_done = 1;
+                } else if (WSAGetLastError() == WSA_IO_INCOMPLETE) {
+                    // XXX: ConnectEx still not connected, wait for next time
+                    return;
+                } else {
+                    ERROR("WSAGetOverlappedResult");
+                    // not connected
+					goto fail;
+                };
+            }
+
+            /* Make the socket more well-behaved. */
+            if (setsockopt(remote->fd, SOL_SOCKET,
+                           SO_UPDATE_CONNECT_CONTEXT, NULL, 0) != 0) {
+                ERROR("setsockopt");
+				goto fail;
+            }
+            goto connected;
+        }
+#endif
         struct sockaddr_storage addr;
         socklen_t len = sizeof addr;
         int r = getpeername(remote->fd, (struct sockaddr *)&addr, &len);
         if (r == 0) {
+connected:
             remote_send_ctx->connected = 1;
             ev_timer_stop(EV_A_ & remote_send_ctx->watcher);
             ev_timer_start(EV_A_ & remote->recv_ctx->watcher);
@@ -635,6 +706,7 @@ static void remote_send_cb(EV_P_ ev_io *w, int revents)
         } else {
             // not connected
             ERROR("getpeername");
+fail:
             close_and_free_remote(EV_A_ remote);
             close_and_free_server(EV_A_ server);
             return;

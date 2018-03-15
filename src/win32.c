@@ -26,6 +26,36 @@
 #undef setsockopt
 #endif
 
+static BOOL load_mswsock(void)
+{
+    SOCKET sock;
+    DWORD dwBytes;
+    int rc;
+
+    /* Dummy socket needed for WSAIoctl */
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCKET)
+        return FALSE;
+
+    {
+        GUID guid = WSAID_CONNECTEX;
+        rc = WSAIoctl(sock, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                      &guid, sizeof(guid),
+                      &ConnectEx, sizeof(ConnectEx),
+                      &dwBytes, NULL, NULL);
+        if (rc != 0) {
+            ERROR("WSAIoctl");
+            return FALSE;
+        }
+    }
+
+    rc = closesocket(sock);
+    if (rc != 0)
+        return FALSE;
+
+    return TRUE;
+}
+
 void winsock_init(void)
 {
     WORD wVersionRequested;
@@ -39,6 +69,9 @@ void winsock_init(void)
     if (LOBYTE(wsaData.wVersion) != 1 || HIBYTE(wsaData.wVersion) != 1) {
         WSACleanup();
         FATAL("Could not find a usable version of winsock");
+    }
+    if (fast_open) {
+        fast_open = load_mswsock();
     }
 }
 

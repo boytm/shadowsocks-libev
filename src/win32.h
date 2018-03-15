@@ -31,6 +31,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <mswsock.h>
 #include "utils.h"
 
 #ifdef EWOULDBLOCK
@@ -45,6 +46,11 @@
 #undef ERROR
 #endif
 
+#ifndef TCP_FASTOPEN
+#define TCP_FASTOPEN 15
+LPFN_CONNECTEX ConnectEx;
+#endif
+
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #define errno WSAGetLastError()
 #define close(fd) closesocket(fd)
@@ -57,5 +63,7 @@ void ss_error(const char *s);
 size_t strnlen(const char *s, size_t maxlen);
 int setnonblocking(int fd);
 const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
+
+extern int fast_open;
 
 #endif

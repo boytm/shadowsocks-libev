@@ -73,6 +73,10 @@ struct remote_ctx {
 
 struct remote {
     int fd;
+#ifdef _WIN32
+    OVERLAPPED olap;
+    int connect_ex_done;
+#endif
     ssize_t buf_len;
     ssize_t buf_idx;
     int direct;

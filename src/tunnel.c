@@ -83,6 +83,7 @@ static void close_and_free_server(EV_P_ struct server *server);
 
 int verbose = 0;
 int udprelay = 0;
+int fast_open = 0;
 
 #ifndef __MINGW32__
 static int setnonblocking(int fd)
