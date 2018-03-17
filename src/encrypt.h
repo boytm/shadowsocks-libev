@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#ifndef __MINGW32__
+#ifndef _WIN32
 #include <sys/socket.h>
 #else
 
@@ -53,16 +53,16 @@ typedef EVP_MD digest_type_t;
 #define MAX_IV_LENGTH EVP_MAX_IV_LENGTH
 #define MAX_MD_SIZE EVP_MAX_MD_SIZE
 
-#elif defined(USE_CRYPTO_POLARSSL)
+#elif defined(USE_CRYPTO_MBEDTLS)
 
-#include <polarssl/cipher.h>
-#include <polarssl/md.h>
-typedef cipher_info_t cipher_kt_t;
-typedef cipher_context_t cipher_evp_t;
-typedef md_info_t digest_type_t;
+#include <mbedtls/cipher.h>
+#include <mbedtls/md.h>
+typedef mbedtls_cipher_info_t cipher_kt_t;
+typedef mbedtls_cipher_context_t cipher_evp_t;
+typedef mbedtls_md_info_t digest_type_t;
 #define MAX_KEY_LENGTH 64
-#define MAX_IV_LENGTH POLARSSL_MAX_IV_LENGTH
-#define MAX_MD_SIZE POLARSSL_MD_MAX_SIZE
+#define MAX_IV_LENGTH MBEDTLS_MAX_IV_LENGTH
+#define MAX_MD_SIZE MBEDTLS_MD_MAX_SIZE
 
 #endif
 
@@ -90,37 +90,57 @@ typedef struct {
 #endif
 
 typedef struct {
+#if defined(USE_CRYPTO_OPENSSL)
+    cipher_evp_t *evp;
+#else
     cipher_evp_t evp;
+#endif
 #ifdef USE_CRYPTO_APPLECC
     cipher_cc_t cc;
 #endif
 } cipher_ctx_t;
 
-#ifdef HAVE_STDINT_H
 #include <stdint.h>
-#elif HAVE_INTTYPES_H
-#include <inttypes.h>
+
+#ifdef _MSC_VER
+#define ssize_t int
 #endif
 
 #define BLOCK_SIZE 32
 
-#define CIPHER_NUM          15
 #define NONE                -1
-#define TABLE               0
-#define RC4                 1
-#define RC4_MD5             2
-#define AES_128_CFB         3
-#define AES_192_CFB         4
-#define AES_256_CFB         5
-#define BF_CFB              6
-#define CAMELLIA_128_CFB    7
-#define CAMELLIA_192_CFB    8
-#define CAMELLIA_256_CFB    9
-#define CAST5_CFB           10
-#define DES_CFB             11
-#define IDEA_CFB            12
-#define RC2_CFB             13
-#define SEED_CFB            14
+enum{
+    TABLE = 0,
+    RC4,
+    RC4_MD5,
+    AES_128_CFB,
+    AES_192_CFB,
+    AES_256_CFB,
+    BF_CFB,
+    CAMELLIA_128_CFB,
+    CAMELLIA_192_CFB,
+    CAMELLIA_256_CFB,
+    CAST5_CFB,
+    DES_CFB,
+    IDEA_CFB,
+    RC2_CFB,
+    SEED_CFB,
+    AES_128_OFB,
+    AES_192_OFB,
+    AES_256_OFB,
+    AES_128_CTR,
+    AES_192_CTR,
+    AES_256_CTR,
+    AES_128_CFB8,
+    AES_192_CFB8,
+    AES_256_CFB8,
+    AES_128_CFB1,
+    AES_192_CFB1,
+    AES_256_CFB1,
+    CHACHA20,
+    CIPHER_NUM,      /* must be last */
+};
+
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
@@ -141,5 +161,6 @@ int enc_init(const char *pass, const char *method);
 int enc_get_iv_len(void);
 void cipher_context_release(cipher_ctx_t *evp);
 unsigned char *enc_md5(const unsigned char *d, size_t n, unsigned char *md);
+void enc_print_all_methods(char *buf, size_t len);
 
 #endif // _ENCRYPT_H
